@@ -19,7 +19,7 @@ def normalize(pixel_array, image_size):
     return pixel_array
 
 
-## TODO fix gdcm dependencies
+# TODO fix gdcm dependencies
 def load_training_data(train_dir, train_csv, output_dir, limit_num=50, image_size=512):
 
     users_id = sorted(os.listdir(train_dir))
