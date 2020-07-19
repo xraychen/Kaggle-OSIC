@@ -15,7 +15,9 @@ def make_dir(file_path):
 def normalize(pixel_array, image_size):
     pixel_array[pixel_array < 0] = 0
     pixel_array = cv2.resize(pixel_array, (image_size, image_size))
-    pixel_array = pixel_array.astype(np.int16)
+    # pixel_array = pixel_array.astype(np.int16)
+    pixel_array = np.clip(pixel_array / 256, 0, 255)
+    pixel_array = pixel_array.astype(np.uint8)
     return pixel_array
 
 
@@ -23,9 +25,11 @@ def normalize(pixel_array, image_size):
 def load_training_data(train_dir, train_csv, output_dir, limit_num=50, image_size=512):
 
     users_id = sorted(os.listdir(train_dir))
-    pad_image = np.zeros((image_size, image_size), np.int16)
+    # pad_image = np.zeros((image_size, image_size), np.int16)
+    pad_image = np.zeros((image_size, image_size), np.uint8)
 
-    train_images = np.zeros((len(users_id), limit_num, image_size, image_size), np.int16)
+    # train_images = np.zeros((len(users_id), limit_num, image_size, image_size), np.int16)
+    train_images = np.zeros((len(users_id), limit_num, image_size, image_size), np.uint8)
     train_x = np.zeros((len(users_id), 3), np.uint8)
     train_y = np.zeros((len(users_id), 146), np.int16)
 
@@ -78,4 +82,4 @@ def load_testing_data(test_dir, limit_num=50):
 
 
 if __name__ == '__main__':
-    load_training_data('raw/train', 'raw/train.csv', 'input/')
+    load_training_data('raw/train', 'raw/train.csv', 'input/', limit_num=20, image_size=256)

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torchvision.transforms as transforms
 
 
 class Encoder(nn.Module):
@@ -92,6 +93,20 @@ class Net(nn.Module):
         x = self.fc(embed)
 
         return x
+
+
+train_transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(15),
+    transforms.ToTensor(),
+    transforms.RandomErasing()
+])
+
+val_transform = transforms.Compose([
+    transforms.ToTensor()
+])
 
 
 if __name__ == '__main__':
