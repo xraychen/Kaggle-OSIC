@@ -58,7 +58,7 @@ class Encoder(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, embed_size=1024, feature_size=3):
+    def __init__(self, embed_size=1024, feature_size=13):
         super(Net, self).__init__()
 
         self.encoder = Encoder(embed_size)

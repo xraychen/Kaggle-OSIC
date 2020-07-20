@@ -40,7 +40,7 @@ class ImageDataset(Dataset):
 
 
 class OsicModel:
-    def __init__(self, name='_', net=Net(), learning_rate=0.001):
+    def __init__(self, name='_', net=Net(), learning_rate=0.001, step_size=20, gamma=0.7):
         self.name = name
         self.epoch = 0
         self.losses = []
@@ -50,6 +50,7 @@ class OsicModel:
 
         self.net = net.to(self.device)
         self.optimizer = optim.Adam(self.net.parameters(), lr=learning_rate)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=step_size, gamma=gamma)
 
     def print_model(self):
         print(self.net)
@@ -73,11 +74,25 @@ class OsicModel:
         self.net.load_state_dict(checkpoint['net_state_dict'])
         if not weights_only:
             self.epoch = checkpoint['epoch'] + 1
+            self.scheduler.last_epoch = checkpoint['epoch']
             self.losses = checkpoint['losses']
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-    def predict(self, x_test, raw=False):
-        pass
+    def predict(self, test_set, batch_size=4):
+        output = []
+        self.net.eval()
+        test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS)
+        with torch.no_grad():
+            for _, data in enumerate(test_loader):
+                images = data[0].to(self.device)
+                x = data[1].to(self.device, torch.float)
+
+                y_pred = self.net(images, x)
+                y_pred = y_pred.detach().cpu().numpy()
+                output.extend(y_pred)
+
+        output = np.array(output, np.float32)
+        return output
 
     def train_on_epoch(self, loader, num_train):
         self.net.train()
@@ -156,22 +171,40 @@ class OsicModel:
             loss, acc = self.train_on_epoch(train_loader, len(train_set))
             if validate:
                 val_loss, val_acc = self.val_on_epoch(val_loader, len(val_set))
+
             routine()
+            self.scheduler.step()
             self.epoch += 1
 
 
 def main():
     train_images = np.load('input/train_images.npy')
+    # train_images = np.load('input/pad_images.npy')
     train_x = np.load('input/train_x.npy')
     train_y = np.load('input/train_y.npy')
 
-    print(train_images[0].shape)
-
+    train_y = train_y / 4000
     train_set = ImageDataset(train_images, train_x, train_y, train_transform)
 
+    model = OsicModel('test_01', learning_rate=1e-3)
+    model.fit(train_set, epochs=60, batch_size=4, checkpoint=20)
+
+
+def test():
+    test_images = np.load('input/train_images.npy')
+    test_x = np.load('input/train_x.npy')
+
+    test_set = ImageDataset(test_images, test_x, None, val_transform)
+
     model = OsicModel()
-    model.fit(train_set, epoch=4, batch_size=16)
+    model.load_checkpoint('model/test_01/e20_t0.0000.pickle')
+
+    y_pred = model.predict(test_set)
+    y_pred = y_pred * 4000
+    y_pred = y_pred.astype(np.int16)
+    print(y_pred[:5])
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    test()
