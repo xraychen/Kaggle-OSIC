@@ -15,8 +15,10 @@ NUM_WORKERS = 4
 def make_dir(file_path):
     dirname = os.path.dirname(file_path)
     try:
-        if not os.path.exists(dirname): os.mkdir(dirname)
-    except FileNotFoundError: pass
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+    except FileNotFoundError:
+        pass
 
 
 class ImageDataset(Dataset):
