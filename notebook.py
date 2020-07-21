@@ -5,17 +5,48 @@
 # You can write up to 5GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All"
 # You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
 
-TRAIN_CSV = '/kaggle/input/osic-pulmonary-fibrosis-progression/train.csv'
 TEST_CSV = '/kaggle/input/osic-pulmonary-fibrosis-progression/test.csv'
+TEST_DIR = '/kaggle/input/osic-pulmonary-fibrosis-progression/test'
+
+SUBMIT_CSV = '/kaggle/working/submission.csv'
 
 
-def test():
-    with open(TEST_CSV) as f:
-        content = f.read().splitlines()
+import os
+import numpy as np
 
-    for line in content:
-        print(line)
+
+def make_dir(file_path):
+    dirname = os.path.dirname(file_path)
+    try:
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+    except FileNotFoundError:
+        pass
+
+
+def write_csv(patients_id, y, c, output_file):
+    make_dir(output_file)
+    with open(output_file, 'w') as f:
+        f.write('Patient_Week,FVC,Confidence\n')
+
+        for w in range(146):
+            for i, p in enumerate(patients_id):
+                f.write('{}_{},{},{}\n'.format(p, w - 12, y[i][w], c[i][w]))
+
+
+def predict(csv_file, image_dir, output_file):
+    with open(csv_file) as f:
+        content = f.read().splitlines()[1:]
+        content = [e.split(',') for e in content]
+
+    patients_id = [e[0] for e in content]
+    y = np.ones((len(content), 146), np.int16) * 2000
+    c = np.ones((len(content), 146), np.int16) * 70
+
+    write_csv(patients_id, y, c, output_file)
 
 
 if __name__ == '__main__':
-    test()
+    predict(TEST_CSV, TEST_DIR, SUBMIT_CSV)
+
+

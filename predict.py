@@ -1,5 +1,9 @@
-import os
+import os, pickle
 import numpy as np
+
+from train_osic import OsicModel, ImageDataset
+from nets import val_transform
+from data_process import codec_fcv
 
 
 def make_dir(file_path):
@@ -16,23 +20,35 @@ def write_csv(patients_id, y, c, output_file):
     with open(output_file, 'w') as f:
         f.write('Patient_Week,FVC,Confidence\n')
 
-        for w in len(y):
+        for w in range(146):
             for i, p in enumerate(patients_id):
-                f.write('{}_{},{},{}\n'.format(p, w - 12, y[p][w], c[p][w]))
+                f.write('{}_{},{},{}\n'.format(p, w - 12, y[i][w], c[i][w]))
 
 
-def predict(csv_file, image_dir, output_file):
-    with open(csv_file) as f:
+def predict(test_pickle, test_csv, model_file, output_file):
+    with open(test_csv) as f:
         content = f.read().splitlines()[1:]
         content = [e.split(',') for e in content]
 
+    with open(test_pickle, 'rb') as f:
+        images, images_id, x = pickle.load(f)
+
+    print(x)
+    return 0
+
+    test_set = ImageDataset(images, images_id, x, None, val_transform)
+
+    model = OsicModel()
+    model.load_checkpoint(model_file)
+
+    y = model.predict(test_set, batch_size=16)
+    y = codec_fcv(y, decode=True).astype(np.int16)
+
     patients_id = [e[0] for e in content]
-    y = np.ones((len(content), 146), np.int16) * 2000
     c = np.ones((len(content), 146), np.int16) * 70
 
     write_csv(patients_id, y, c, output_file)
 
 
 if __name__ == '__main__':
-    predict('raw/test.csv', 'raw/test', 'output/_.csv')
-
+    predict('input/test.pickle', 'raw/test.csv', 'model/test_01/e10_v0.0297.pickle', 'output/test_01.csv')

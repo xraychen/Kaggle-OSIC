@@ -99,6 +99,36 @@ class Net(nn.Module):
         return x
 
 
+class NetSimple(nn.Module):
+    def __init__(self, feature_size=161, output_size=146):
+        super(NetSimple, self).__init__()
+
+        self.fc = nn.Sequential(
+            nn.Linear(feature_size, 512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(256, output_size)
+        )
+
+    def forward(self, images, x):
+        x = self.fc(x)
+
+        return x
+
+
 train_transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15),

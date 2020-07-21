@@ -1,4 +1,4 @@
-import os, cv2
+import os, cv2, pickle
 import pydicom
 import numpy as np
 
@@ -53,17 +53,31 @@ def to_onehot(value, category):
 
 
 def codec_fcv(value, decode=False):
+    MEAN, STD = 2690.479018721756, 832.5021066817238
+
+    if type(value) == str:
+        value = float(value)
+
     if decode:
-        return float(value) * 4000.
+        # return (value * STD) + MEAN
+        return value * 4000.
     else:
-        return float(value) / 4000.
+        # return (value - MEAN) / STD
+        return value / 4000.
 
 
 def codec_percent(value, decode=False):
+    MEAN, STD = 77.67265350296326, 19.81686156299212
+
+    if type(value) == str:
+        value = float(value)
+
     if decode:
-        return float(value) * 100.
+        # return (value * STD) + MEAN
+        return value * 100.
     else:
-        return float(value) / 100.
+        # return (value - MEAN) / STD
+        return value / 100.
 
 
 def normalize(pixel_array, image_size):
@@ -75,7 +89,7 @@ def normalize(pixel_array, image_size):
     return pixel_array
 
 
-def process_data(csv_file, image_dir, limit_num=20, image_size=256):
+def process_data(csv_file, image_dir, limit_num=20, image_size=256, return_y=True):
     with open(csv_file) as f:
         content = f.read().splitlines()[1:]
         content = [e.split(',') for e in content]
@@ -106,12 +120,13 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256):
         if cache_user_id != user_id:
             cache_user_id = user_id
             # generate y
-            user_filter = list(filter(lambda x: x[0] == user_id, content))
-            p = 0
-            for j in range(Y_LENGTH):
-                if j + Y_OFFSET > int(user_filter[p][1]) and p < len(user_filter) - 1:
-                    p += 1
-                cache_y[j] = codec_fcv(user_filter[p][2])
+            if return_y:
+                user_filter = list(filter(lambda x: x[0] == user_id, content))
+                p = 0
+                for j in range(Y_LENGTH):
+                    if j + Y_OFFSET > int(user_filter[p][1]) and p < len(user_filter) - 1:
+                        p += 1
+                    cache_y[j] = codec_fcv(user_filter[p][2])
 
             # generate image
             image_arr = os.listdir(os.path.join(image_dir, user_id))
@@ -121,13 +136,11 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256):
             for j in range(limit_num):
                 if j < len(image_arr):
                     try:
-                        image = pydicom.dcmread(os.path.join(image_dir, user_id, '{}.dcm'.format(image_arr[j])))
-                        # cache_image[j, :, :] = normalize(image.pixel_array, image_size)
-
-
-
-
-                        cache_image[j, :, :] = empty_image
+                        if limit_num == 1:
+                            cache_image[j, :, :] = empty_image
+                        else:
+                            image = pydicom.dcmread(os.path.join(image_dir, user_id, '{}.dcm'.format(image_arr[j])))
+                            cache_image[j, :, :] = normalize(image.pixel_array, image_size)
                     except RuntimeError:
                         cache_image[j, :, :] = empty_image
                 else:
@@ -141,21 +154,45 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256):
 
     images = np.array(images, np.uint8)
 
-    return images, images_id, x, y
+    if return_y:
+        return images, images_id, x, y
+    else:
+        return images, images_id, x
+
+
+def statistic():
+    with open('raw/train.csv') as f:
+        content = f.read().splitlines()[1:]
+        content = [e.split(',') for e in content]
+
+    row_01 = [float(e[2]) for e in content]
+    row_02 = [float(e[3]) for e in content]
+
+    print('fcv:     {}, {}'.format(np.mean(row_01), np.std(row_01)))
+    print('percent: {}, {}'.format(np.mean(row_02), np.std(row_02)))
 
 
 def process_training_data():
     images, images_id, x, y = process_data('raw/train.csv', 'raw/train', limit_num=1)
 
-    # np.save('input/train_images.npy', images)
+    with open('input/train.pickle', 'wb') as f:
+        pickle.dump((images, images_id, x, y), f)
+
+    # np.save('input/empty_images.npy', images)
+    # np.save('input/train_images_id.npy', images_id)
+    # np.save('input/train_x.npy', x)
+    # np.save('input/train_y.npy', y)
 
 
+def process_testing_data():
+    images, images_id, x = process_data('raw/test.csv', 'raw/test', limit_num=1, return_y=False)
 
+    with open('input/test.pickle', 'wb') as f:
+        pickle.dump((images, images_id, x), f)
 
-    np.save('input/empty_images.npy', images)
-    np.save('input/train_images_id.npy', images_id)
-    np.save('input/train_x.npy', x)
-    np.save('input/train_y.npy', y)
+    # np.save('input/test_images.npy', images)
+    # np.save('input/test_images_id.npy', images_id)
+    # np.save('input/test_x.npy', x)
 
 
 if __name__ == '__main__':
@@ -163,3 +200,5 @@ if __name__ == '__main__':
     Y_LENGTH = 146
     Y_OFFSET = -12
     process_training_data()
+    process_testing_data()
+    # statistic()
