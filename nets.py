@@ -58,10 +58,14 @@ class Encoder(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, embed_size=1024, feature_size=13):
+    def __init__(self, embed_size=1024, feature_size=161, output_size=146, train_encoder=False):
         super(Net, self).__init__()
 
         self.encoder = Encoder(embed_size)
+        if not train_encoder:
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+
         self.gru = nn.GRU(1024, 512, num_layers=1, batch_first=True)
 
         self.fc = nn.Sequential(
@@ -71,13 +75,13 @@ class Net(nn.Module):
 
             nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Dropout(),
+            nn.Dropout(0.2),
 
             nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Dropout(),
+            nn.Dropout(0.2),
 
-            nn.Linear(256, 146)
+            nn.Linear(256, output_size)
         )
 
     def forward(self, images, x):

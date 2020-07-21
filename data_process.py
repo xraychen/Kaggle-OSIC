@@ -75,7 +75,7 @@ def normalize(pixel_array, image_size):
     return pixel_array
 
 
-def process_data(csv_file, image_dir, output_dir, limit_num=20, image_size=256):
+def process_data(csv_file, image_dir, limit_num=20, image_size=256):
     with open(csv_file) as f:
         content = f.read().splitlines()[1:]
         content = [e.split(',') for e in content]
@@ -122,7 +122,12 @@ def process_data(csv_file, image_dir, output_dir, limit_num=20, image_size=256):
                 if j < len(image_arr):
                     try:
                         image = pydicom.dcmread(os.path.join(image_dir, user_id, '{}.dcm'.format(image_arr[j])))
-                        cache_image[j, :, :] = normalize(image.pixel_array, image_size)
+                        # cache_image[j, :, :] = normalize(image.pixel_array, image_size)
+
+
+
+
+                        cache_image[j, :, :] = empty_image
                     except RuntimeError:
                         cache_image[j, :, :] = empty_image
                 else:
@@ -136,17 +141,25 @@ def process_data(csv_file, image_dir, output_dir, limit_num=20, image_size=256):
 
     images = np.array(images, np.uint8)
 
-    print(x.shape)
-    print(x[:5])
-    print(y.shape)
-    print(y[:5])
-    print(y[15:20])
-    print(images_id[:20])
-    print(images.shape)
+    return images, images_id, x, y
+
+
+def process_training_data():
+    images, images_id, x, y = process_data('raw/train.csv', 'raw/train', limit_num=1)
+
+    # np.save('input/train_images.npy', images)
+
+
+
+
+    np.save('input/empty_images.npy', images)
+    np.save('input/train_images_id.npy', images_id)
+    np.save('input/train_x.npy', x)
+    np.save('input/train_y.npy', y)
 
 
 if __name__ == '__main__':
     X_LENGTH = 161
     Y_LENGTH = 146
     Y_OFFSET = -12
-    process_data('raw/train.csv', 'raw/train', 'input/')
+    process_training_data()

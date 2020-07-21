@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 
 from nets import *
+from data_process import codec_fcv, codec_percent
 
 NUM_WORKERS = 4
 
@@ -19,16 +20,22 @@ def make_dir(file_path):
 
 
 class ImageDataset(Dataset):
-    def __init__(self, images, x, y, transform):
+    def __init__(self, images, images_id, x, y, transform):
         self.images = np.expand_dims(images, axis=-1)
+        self.images_id = images_id
         self.x = x
         self.y = y
         self.transform = transform
 
     def __getitem__(self, idx):
-        temp = torch.zeros(self.images[idx].shape).permute(0, 3, 1, 2)
-        for i in range(len(self.images[idx])):
-            temp[i, :, :, :] = self.transform(self.images[idx][i])
+        if self.images_id is not None:
+            image_id = self.images_id[idx]
+        else:
+            image_id = idx
+
+        temp = torch.zeros(self.images[image_id].shape).permute(0, 3, 1, 2)
+        for i in range(len(self.images[image_id])):
+            temp[i, :, :, :] = self.transform(self.images[image_id][i])
 
         if self.y is not None:
             return temp, self.x[idx], self.y[idx]
@@ -94,9 +101,12 @@ class OsicModel:
         output = np.array(output, np.float32)
         return output
 
-    def train_on_epoch(self, loader, num_train):
+    def train_on_epoch(self, loader):
+        a = []
+        b = []
+
         self.net.train()
-        loss, acc = 0., 0
+        loss = 0.
         for _, data in enumerate(loader):
             self.optimizer.zero_grad()
 
@@ -104,53 +114,74 @@ class OsicModel:
             x = data[1].to(self.device, torch.float)
             y = data[2].to(self.device, torch.float)
 
-            y_pred = self.net(images, x).squeeze()
+            y_pred = self.net(images, x)
+            a.extend(y_pred[:, 0].detach().cpu().numpy())
+            b.extend(y[:, 0].detach().cpu().numpy())
+
             batch_loss = F.mse_loss(y_pred, y)
             batch_loss.backward()
 
             self.optimizer.step()
             loss += batch_loss.item()
 
-        return loss / len(loader), 0.0
 
-    def val_on_epoch(self, loader, num_val):
+        # print([int(e * 4000) for e in a[:10]])
+        # print([int(e * 4000) for e in b[:10]])
+        return loss / len(loader)
+
+    def val_on_epoch(self, loader):
+        temp = []
+
         self.net.eval()
         with torch.no_grad():
-            loss, acc = 0., 0
+            loss = 0.
             for _, data in enumerate(loader):
-                x, y = data[0].to(self.device, torch.long), data[1].to(self.device, torch.float)
-                y_pred = self.net(x).squeeze()
-                batch_loss = self.loss(y_pred, y)
+                images = data[0].to(self.device)
+                x = data[1].to(self.device, torch.float)
+                y = data[2].to(self.device, torch.float)
+
+                y_pred = self.net(images, x)
+                temp.extend(y_pred[:, 0].detach().cpu().numpy())
+
+
+                batch_loss = F.mse_loss(y_pred, y)
+
                 loss += batch_loss.item()
-                y_pred[y_pred >= 0.5], y_pred[y_pred < 0.5] = 1, 0
-                acc += torch.sum(torch.eq(y_pred, y)).item()
-        return loss / len(loader), float(acc) / num_val
+
+
+        # print([e * 4000 for e in temp[:5]])
+        return loss / len(loader)
 
     def fit(self, train_set, val_set=None, epochs=1, batch_size=32, checkpoint=False, save_progress=False, random_seed=None, final_model=False):
         def routine():
             print('epoch {:>3} [{:2.2f} s] '.format(self.epoch + 1, time.time() - start_time), end='')
+
             if validate:
-                print('training [loss: {:3.7f}, acc: {:1.5f}], validation [loss: {:3.7f}, acc: {:1.5f}]'.format(
-                    loss, acc, val_loss, val_acc
+                print('training [loss: {:3.7f}, est error: {:1.5f}], validation [loss: {:3.7f}, est error: {:1.5f}]'.format(
+                    loss, codec_fcv(loss, True), val_loss, codec_fcv(val_loss, True)
                 ))
                 if save_progress:
-                    self.losses.append((loss, acc, val_loss, val_acc))
+                    self.losses.append((loss, val_loss))
                 if checkpoint and (self.epoch + 1) % checkpoint == 0:
                     folder = './model/{}'.format(self.name)
                     make_dir(folder)
-                    if final_model: self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
-                    else: self.save_checkpoint('{}/e{:02}_v{:.4f}.pickle'.format(folder, self.epoch + 1, val_acc))
+                    if final_model:
+                        self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
+                    else:
+                        self.save_checkpoint('{}/e{:02}_v{:.4f}.pickle'.format(folder, self.epoch + 1, val_loss))
             else:
-                print('training [loss: {:3.7f}, acc: {:1.5f}]'.format(
-                    loss, acc
+                print('training [loss: {:3.7f}, est error: {:1.5f}]'.format(
+                    loss, codec_fcv(loss, True)
                 ))
                 if save_progress:
                     self.losses.append((loss, acc))
                 if checkpoint and (self.epoch + 1) % checkpoint == 0:
                     folder = './model/{}'.format(self.name)
                     make_dir(folder)
-                    if final_model: self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
-                    else: self.save_checkpoint('{}/e{:02}_t{:.4f}.pickle'.format(folder, self.epoch + 1, acc))
+                    if final_model:
+                        self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
+                    else:
+                        self.save_checkpoint('{}/e{:02}_t{:.4f}.pickle'.format(folder, self.epoch + 1, loss))
 
 
         validate = True if val_set is not None else False
@@ -168,9 +199,9 @@ class OsicModel:
 
         while self.epoch < epochs:
             start_time = time.time()
-            loss, acc = self.train_on_epoch(train_loader, len(train_set))
+            loss = self.train_on_epoch(train_loader)
             if validate:
-                val_loss, val_acc = self.val_on_epoch(val_loader, len(val_set))
+                val_loss = self.val_on_epoch(val_loader)
 
             routine()
             self.scheduler.step()
@@ -178,16 +209,28 @@ class OsicModel:
 
 
 def main():
-    train_images = np.load('input/train_images.npy')
-    # train_images = np.load('input/pad_images.npy')
+    # train_images = np.load('input/train_images.npy')
+    train_images = np.load('input/empty_images.npy')
+    train_images_id = np.load('input/train_images_id.npy')
     train_x = np.load('input/train_x.npy')
     train_y = np.load('input/train_y.npy')
 
-    train_y = train_y / 4000
-    train_set = ImageDataset(train_images, train_x, train_y, train_transform)
+    k = 1200
+    # val_images = train_images[k:]
+    val_images_id = train_images_id[k:]
+    val_x = train_x[k:]
+    val_y = train_y[k:]
+    val_set = ImageDataset(train_images, val_images_id, val_x, val_y, val_transform)
 
-    model = OsicModel('test_01', learning_rate=1e-3)
-    model.fit(train_set, epochs=60, batch_size=4, checkpoint=20)
+    # train_images = train_images[:k]
+    train_images_id = train_images_id[:k]
+    train_x = train_x[:k]
+    train_y = train_y[:k]
+
+    train_set = ImageDataset(train_images, train_images_id, train_x, train_y, train_transform)
+
+    model = OsicModel('test_01', learning_rate=1e-5)
+    model.fit(train_set, val_set, epochs=60, batch_size=8, checkpoint=20)
 
 
 def test():
@@ -206,5 +249,5 @@ def test():
 
 
 if __name__ == '__main__':
-    # main()
-    test()
+    main()
+    # test()
