@@ -1,7 +1,6 @@
 import os, cv2, pickle
 import pydicom
 import numpy as np
-
 import matplotlib.pyplot as plt
 
 
@@ -52,32 +51,55 @@ def to_onehot(value, category):
     return onehot(idx, length)
 
 
-def codec_fcv(value, decode=False):
-    MEAN, STD = 2690.479018721756, 832.5021066817238
+class Codec:
+    def __init__(self, tag='fcv'):
+        if tag == 'fcv':
+            self.mean = 2690.479018721756
+            self.std = 832.5021066817238
+        elif tag == 'percent':
+            self.mean = 77.67265350296326
+            self.std = 19.81686156299212
+        else:
+            raise KeyError
 
-    if type(value) == str:
-        value = float(value)
+    def encode(self, value):
+        value = float(value) if type(value) == str else value
+        return (value - self.mean) / self.std
 
-    if decode:
-        # return (value * STD) + MEAN
-        return value * 4000.
-    else:
-        # return (value - MEAN) / STD
-        return value / 4000.
+    def decode(self, value, add_mean=True):
+        value = float(value) if type(value) == str else value
+        if add_mean:
+            return value * self.std + self.mean
+        else:
+            return value * self.std
 
 
-def codec_percent(value, decode=False):
-    MEAN, STD = 77.67265350296326, 19.81686156299212
+# def codec_fcv(value, decode=False):
+#     MEAN, STD = 2690.479018721756, 832.5021066817238
 
-    if type(value) == str:
-        value = float(value)
+#     if type(value) == str:
+#         value = float(value)
 
-    if decode:
-        # return (value * STD) + MEAN
-        return value * 100.
-    else:
-        # return (value - MEAN) / STD
-        return value / 100.
+#     if decode:
+#         return (value * STD) + MEAN
+#         # return value * 4000.
+#     else:
+#         return (value - MEAN) / STD
+#         # return value / 4000.
+
+
+# def codec_percent(value, decode=False):
+#     MEAN, STD = 77.67265350296326, 19.81686156299212
+
+#     if type(value) == str:
+#         value = float(value)
+
+#     if decode:
+#         return (value * STD) + MEAN
+#         # return value * 100.
+#     else:
+#         return (value - MEAN) / STD
+#         # return value / 100.
 
 
 def normalize(pixel_array, image_size):
@@ -109,8 +131,8 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256, return_y=Tru
     for i, line in enumerate(content):
         # generate x
         x[i, :] = np.concatenate((
+            np.array([codec_f.encode(line[2]), codec_p.encode(line[3])], np.float32),
             to_onehot(line[1], 'week'),
-            np.array([codec_fcv(line[2]), codec_percent(line[3])], np.float32),
             to_onehot(line[4], 'age'),
             to_onehot(line[5], 'sex'),
             to_onehot(line[6], 'smoking_status')
@@ -126,7 +148,7 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256, return_y=Tru
                 for j in range(Y_LENGTH):
                     if j + Y_OFFSET > int(user_filter[p][1]) and p < len(user_filter) - 1:
                         p += 1
-                    cache_y[j] = codec_fcv(user_filter[p][2])
+                    cache_y[j] = codec_f.encode(user_filter[p][2])
 
             # generate image
             image_arr = os.listdir(os.path.join(image_dir, user_id))
@@ -175,13 +197,8 @@ def statistic():
 def process_training_data():
     images, images_id, x, y = process_data('raw/train.csv', 'raw/train', limit_num=1)
 
-    with open('input/train.pickle', 'wb') as f:
+    with open('input/train_new.pickle', 'wb') as f:
         pickle.dump((images, images_id, x, y), f)
-
-    # np.save('input/empty_images.npy', images)
-    # np.save('input/train_images_id.npy', images_id)
-    # np.save('input/train_x.npy', x)
-    # np.save('input/train_y.npy', y)
 
 
 def process_testing_data():
@@ -190,15 +207,16 @@ def process_testing_data():
     with open('input/test.pickle', 'wb') as f:
         pickle.dump((images, images_id, x), f)
 
-    # np.save('input/test_images.npy', images)
-    # np.save('input/test_images_id.npy', images_id)
-    # np.save('input/test_x.npy', x)
+
+X_LENGTH = 161
+Y_LENGTH = 146
+Y_OFFSET = -12
+
+codec_f = Codec(tag='fcv')
+codec_p = Codec(tag='percent')
 
 
 if __name__ == '__main__':
-    X_LENGTH = 161
-    Y_LENGTH = 146
-    Y_OFFSET = -12
     process_training_data()
-    process_testing_data()
+    # process_testing_data()
     # statistic()

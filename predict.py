@@ -2,7 +2,7 @@ import os, pickle
 import numpy as np
 
 from train_osic import OsicModel, ImageDataset
-from nets import val_transform
+from nets import *
 from data_process import codec_fcv
 
 
@@ -33,12 +33,9 @@ def predict(test_pickle, test_csv, model_file, output_file):
     with open(test_pickle, 'rb') as f:
         images, images_id, x = pickle.load(f)
 
-    print(x)
-    return 0
-
     test_set = ImageDataset(images, images_id, x, None, val_transform)
 
-    model = OsicModel()
+    model = OsicModel(net=NetSimple())
     model.load_checkpoint(model_file)
 
     y = model.predict(test_set, batch_size=16)
@@ -51,4 +48,4 @@ def predict(test_pickle, test_csv, model_file, output_file):
 
 
 if __name__ == '__main__':
-    predict('input/test.pickle', 'raw/test.csv', 'model/test_01/e10_v0.0297.pickle', 'output/test_01.csv')
+    predict('input/test.pickle', 'raw/test.csv', 'model/test_01/e20_v273.8.pickle', 'output/test_01.csv')

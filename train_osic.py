@@ -7,7 +7,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 
 from nets import *
-from data_process import codec_fcv, codec_percent
+# from data_process import codec_fcv, codec_percent
+from data_process import codec_f, codec_p
 
 NUM_WORKERS = 4
 
@@ -22,12 +23,13 @@ def make_dir(file_path):
 
 
 class ImageDataset(Dataset):
-    def __init__(self, images, images_id, x, y, transform):
+    def __init__(self, images, images_id, x, y, transform, add_noise=False):
         self.images = np.expand_dims(images, axis=-1)
         self.images_id = images_id
         self.x = x
         self.y = y
         self.transform = transform
+        self.add_noise = add_noise
 
     def __getitem__(self, idx):
         if self.images_id is not None:
@@ -35,14 +37,28 @@ class ImageDataset(Dataset):
         else:
             image_id = idx
 
-        temp = torch.zeros(self.images[image_id].shape).permute(0, 3, 1, 2)
+        images = torch.zeros(self.images[image_id].shape).permute(0, 3, 1, 2)
         for i in range(len(self.images[image_id])):
-            temp[i, :, :, :] = self.transform(self.images[image_id][i])
+            images[i, :, :, :] = self.transform(self.images[image_id][i])
+
+        # if self.add_noise:
+        #     a = codec_fcv(80)
+        #     b = codec_fcv(20)
+
+        #     noise_a = np.random.normal() * a
+        #     noise_b = np.random.normal(size=self.y[0].shape) * b
+
+        #     x = self.x[idx]
+        #     x[0] += noise_a
+        #     y = self.y[idx] + noise_a + noise_b
+        # else:
+        #     x = self.x[idx]
+        #     y = self.y[idx]
 
         if self.y is not None:
-            return temp, self.x[idx], self.y[idx]
+            return images, self.x[idx], self.y[idx]
         else:
-            return temp, self.x[idx]
+            return images, self.x[idx]
 
     def __len__(self):
         return len(self.x)
@@ -104,9 +120,6 @@ class OsicModel:
         return output
 
     def train_on_epoch(self, loader):
-        a = []
-        b = []
-
         self.net.train()
         loss = 0.
         norm = 0.
@@ -118,8 +131,6 @@ class OsicModel:
             y = data[2].to(self.device, torch.float)
 
             y_pred = self.net(images, x)
-            a.extend(y_pred[:, 0].detach().cpu().numpy())
-            b.extend(y[:, 0].detach().cpu().numpy())
 
             batch_loss = F.mse_loss(y_pred, y)
             batch_loss.backward()
@@ -128,9 +139,6 @@ class OsicModel:
             loss += batch_loss.item()
             norm += F.l1_loss(y_pred, y).item()
 
-
-        # print([int(e * 4000) for e in a[:10]])
-        # print([int(e * 4000) for e in b[:10]])
         return loss / len(loader), norm / len(loader)
 
     def val_on_epoch(self, loader):
@@ -156,7 +164,7 @@ class OsicModel:
 
             if validate:
                 print('training [loss: {:3.7f}, norm: {:1.5f}], validation [loss: {:3.7f}, norm: {:1.5f}]'.format(
-                    loss, codec_fcv(norm, True), val_loss, codec_fcv(val_norm, True)
+                    loss, codec_f.decode(norm, False), val_loss, codec_f.decode(val_norm, False)
                 ))
                 if save_progress:
                     self.losses.append((loss, norm, val_loss, val_norm))
@@ -166,10 +174,10 @@ class OsicModel:
                     if final_model:
                         self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
                     else:
-                        self.save_checkpoint('{}/e{:02}_v{:.4f}.pickle'.format(folder, self.epoch + 1, val_loss))
+                        self.save_checkpoint('{}/e{:02}_v{:.1f}.pickle'.format(folder, self.epoch + 1, codec_f.decode(val_norm, False)))
             else:
                 print('training [loss: {:3.7f}, norm: {:1.5f}]'.format(
-                    loss, codec_fcv(norm, True)
+                    loss, codec_f.decode(norm, False)
                 ))
                 if save_progress:
                     self.losses.append((loss, norm))
@@ -179,7 +187,7 @@ class OsicModel:
                     if final_model:
                         self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
                     else:
-                        self.save_checkpoint('{}/e{:02}_t{:.4f}.pickle'.format(folder, self.epoch + 1, loss))
+                        self.save_checkpoint('{}/e{:02}_t{:.1f}.pickle'.format(folder, self.epoch + 1, codec_f.decode(norm, False)))
 
 
         validate = True if val_set is not None else False
@@ -188,16 +196,12 @@ class OsicModel:
             if str(self.device) == 'cuda:0':
                 torch.cuda.manual_seed_all(random_seed)
 
+        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS)
         if validate:
             val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS)
             print('training on {} samples, validating on {} samples\n'.format(len(train_set), len(val_set)))
         else:
             print('training on {} samples\n'.format(len(train_set)))
-        # train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS)
-
-
-
-        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS)
 
         while self.epoch < epochs:
             start_time = time.time()
@@ -211,48 +215,16 @@ class OsicModel:
 
 
 def main():
-    # train_images = np.load('input/train_images.npy')
-    # train_images = np.load('input/empty_images.npy')
-    # train_images_id = np.load('input/train_images_id.npy')
-    # train_x = np.load('input/train_x.npy')
-    # train_y = np.load('input/train_y.npy')
-
-    with open('input/train.pickle', 'rb') as f:
-        train_images, train_images_id, train_x, train_y = pickle.load(f)
+    with open('input/train_new.pickle', 'rb') as f:
+        images, images_id, x, y = pickle.load(f)
 
     k = 1200
-    # val_images = train_images[k:]
-    val_images_id = train_images_id[k:]
-    val_x = train_x[k:]
-    val_y = train_y[k:]
-    val_set = ImageDataset(train_images, val_images_id, val_x, val_y, val_transform)
+    val_set = ImageDataset(images, images_id[k:], x[k:], y[k:], val_transform)
+    train_set = ImageDataset(images, images_id[:k], x[:k], y[:k], train_transform, add_noise=False)
 
-    # train_images = train_images[:k]
-    train_images_id = train_images_id[:k]
-    train_x = train_x[:k]
-    train_y = train_y[:k]
-
-    train_set = ImageDataset(train_images, train_images_id, train_x, train_y, train_transform)
-
-    model = OsicModel('test_01', net=NetSimple(), learning_rate=5e-5)
-    model.fit(train_set, val_set, epochs=20, batch_size=8, checkpoint=5)
-
-
-def test():
-    test_images = np.load('input/train_images.npy')
-    test_x = np.load('input/train_x.npy')
-
-    test_set = ImageDataset(test_images, test_x, None, val_transform)
-
-    model = OsicModel()
-    model.load_checkpoint('model/test_01/e20_t0.0000.pickle')
-
-    y_pred = model.predict(test_set)
-    y_pred = y_pred * 4000
-    y_pred = y_pred.astype(np.int16)
-    print(y_pred[:5])
+    model = OsicModel('_', net=NetSimple(), learning_rate=5e-5, gamma=0.1)
+    model.fit(train_set, val_set, epochs=100, batch_size=8, checkpoint=5)
 
 
 if __name__ == '__main__':
     main()
-    # test()

@@ -77,6 +77,10 @@ class Net(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.2),
 
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
             nn.Linear(512, 256),
             nn.ReLU(),
             nn.Dropout(0.2),
