@@ -7,19 +7,15 @@
 
 NUM_WORKERS = 4
 
-X_LENGTH = 161
-Y_LENGTH = 146
-Y_OFFSET = -12
-
 # TEST_CSV = '../input/osic-pulmonary-fibrosis-progression/test.csv'
 # TEST_DIR = '../input/osic-pulmonary-fibrosis-progression/test'
 # SUBMIT_CSV = 'submission.csv'
-# MODEL_FILE = '../input/test-01/e20_v273.8.pickle'
+# MODEL_FILE = ''
 
 TEST_CSV = 'raw/test.csv'
 TEST_DIR = 'raw/test'
-SUBMIT_CSV = 'output/notebook_check.csv'
-MODEL_FILE = 'model/test_02/e15_v249.4.pickle'
+SUBMIT_CSV = 'output/notebook.csv'
+MODEL_FILE = 'model/test_03/e25_v175.2.pickle'
 
 
 import os, cv2, pickle, time, random, sys
@@ -32,6 +28,47 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
+
+
+# utils.py
+X_LENGTH = 161
+Y_LENGTH = 146
+Y_OFFSET = -12
+
+FCV_MEAN = 2690.479018721756
+FCV_STD = 832.5021066817238
+PERCENT_MEAN = 77.67265350296326
+PERCENT_STD = 19.81686156299212
+
+
+class Codec:
+    def __init__(self, tag='fcv'):
+        if tag == 'fcv':
+            self.mean = FCV_MEAN
+            self.std = FCV_STD
+        elif tag == 'percent':
+            self.mean = PERCENT_MEAN
+            self.std = PERCENT_STD
+        else:
+            raise KeyError
+
+    def encode(self, value, scale_only=False):
+        value = float(value) if type(value) == str else value
+        if scale_only:
+            return value / self.std
+        else:
+            return (value - self.mean) / self.std
+
+    def decode(self, value, scale_only=False):
+        value = float(value) if type(value) == str else value
+        if scale_only:
+            return value * self.std
+        else:
+            return value * self.std + self.mean
+
+
+codec_f = Codec(tag='fcv')
+codec_p = Codec(tag='percent')
 
 
 def make_dir(file_path):
@@ -70,26 +107,6 @@ def to_onehot(value, category):
     return onehot(idx, length)
 
 
-def codec_fcv(value, decode=False):
-    if type(value) == str:
-        value = float(value)
-
-    if decode:
-        return value * 4000.
-    else:
-        return value / 4000.
-
-
-def codec_percent(value, decode=False):
-    if type(value) == str:
-        value = float(value)
-
-    if decode:
-        return value * 100.
-    else:
-        return value / 100.
-
-
 def normalize(pixel_array, image_size):
     pixel_array[pixel_array < 0] = 0
     pixel_array = cv2.resize(pixel_array, (image_size, image_size))
@@ -119,7 +136,7 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256, return_y=Tru
     for i, line in enumerate(content):
         # generate x
         x[i, :] = np.concatenate((
-            np.array([codec_fcv(line[2]), codec_percent(line[3])], np.float32),
+            np.array([codec_f.encode(line[2]), codec_p.encode(line[3])], np.float32),
             to_onehot(line[1], 'week'),
             to_onehot(line[4], 'age'),
             to_onehot(line[5], 'sex'),
@@ -136,7 +153,7 @@ def process_data(csv_file, image_dir, limit_num=20, image_size=256, return_y=Tru
                 for j in range(Y_LENGTH):
                     if j + Y_OFFSET > int(user_filter[p][1]) and p < len(user_filter) - 1:
                         p += 1
-                    cache_y[j] = codec_fcv(user_filter[p][2])
+                    cache_y[j] = codec_f.encode(user_filter[p][2])
 
             # generate image
             image_arr = os.listdir(os.path.join(image_dir, user_id))
@@ -314,10 +331,10 @@ def predict(test_csv, model_file, output_file):
     model.load_checkpoint(model_file)
 
     y = model.predict(test_set, batch_size=16)
-    y = codec_fcv(y, decode=True).astype(np.int16)
+    y = codec_f.decode(y).astype(np.int16)
 
     patients_id = [e[0] for e in content]
-    c = np.ones((len(content), 146), np.int16) * 353
+    c = np.ones((len(content), 146), np.int16) * 254
 
     write_csv(patients_id, y, c, output_file)
 

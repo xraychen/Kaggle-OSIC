@@ -3,6 +3,8 @@ import pydicom
 import numpy as np
 import matplotlib.pyplot as plt
 
+from utils import *
+
 
 def make_dir(file_path):
     dirname = os.path.dirname(file_path)
@@ -49,29 +51,6 @@ def to_onehot(value, category):
         raise KeyError
 
     return onehot(idx, length)
-
-
-class Codec:
-    def __init__(self, tag='fcv'):
-        if tag == 'fcv':
-            self.mean = 2690.479018721756
-            self.std = 832.5021066817238
-        elif tag == 'percent':
-            self.mean = 77.67265350296326
-            self.std = 19.81686156299212
-        else:
-            raise KeyError
-
-    def encode(self, value):
-        value = float(value) if type(value) == str else value
-        return (value - self.mean) / self.std
-
-    def decode(self, value, add_mean=True):
-        value = float(value) if type(value) == str else value
-        if add_mean:
-            return value * self.std + self.mean
-        else:
-            return value * self.std
 
 
 # def codec_fcv(value, decode=False):
@@ -208,15 +187,15 @@ def process_testing_data():
         pickle.dump((images, images_id, x), f)
 
 
-X_LENGTH = 161
-Y_LENGTH = 146
-Y_OFFSET = -12
+# X_LENGTH = 161
+# Y_LENGTH = 146
+# Y_OFFSET = -12
 
-codec_f = Codec(tag='fcv')
-codec_p = Codec(tag='percent')
+# codec_f = Codec(tag='fcv')
+# codec_p = Codec(tag='percent')
 
 
 if __name__ == '__main__':
     process_training_data()
-    # process_testing_data()
+    process_testing_data()
     # statistic()

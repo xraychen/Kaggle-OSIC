@@ -7,8 +7,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 
 from nets import *
+from utils import *
 # from data_process import codec_fcv, codec_percent
-from data_process import codec_f, codec_p
+# from data_process import codec_f, codec_p
 
 NUM_WORKERS = 4
 
@@ -41,22 +42,22 @@ class ImageDataset(Dataset):
         for i in range(len(self.images[image_id])):
             images[i, :, :, :] = self.transform(self.images[image_id][i])
 
-        # if self.add_noise:
-        #     a = codec_fcv(80)
-        #     b = codec_fcv(20)
-
-        #     noise_a = np.random.normal() * a
-        #     noise_b = np.random.normal(size=self.y[0].shape) * b
-
-        #     x = self.x[idx]
-        #     x[0] += noise_a
-        #     y = self.y[idx] + noise_a + noise_b
-        # else:
-        #     x = self.x[idx]
-        #     y = self.y[idx]
-
         if self.y is not None:
-            return images, self.x[idx], self.y[idx]
+            if self.add_noise:
+                a = codec_f.encode(500, scale_only=True)
+                b = codec_f.encode(100, scale_only=True)
+
+                noise_a = np.random.normal() * a
+                noise_b = np.random.normal(size=self.y[0].shape) * b
+
+                x = self.x[idx]
+                x[0] += noise_a
+                y = self.y[idx] + noise_a + noise_b
+            else:
+                x = self.x[idx]
+                y = self.y[idx]
+
+            return images, x, y
         else:
             return images, self.x[idx]
 
@@ -164,7 +165,7 @@ class OsicModel:
 
             if validate:
                 print('training [loss: {:3.7f}, norm: {:1.5f}], validation [loss: {:3.7f}, norm: {:1.5f}]'.format(
-                    loss, codec_f.decode(norm, False), val_loss, codec_f.decode(val_norm, False)
+                    loss, codec_f.decode(norm, True), val_loss, codec_f.decode(val_norm, True)
                 ))
                 if save_progress:
                     self.losses.append((loss, norm, val_loss, val_norm))
@@ -174,10 +175,10 @@ class OsicModel:
                     if final_model:
                         self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
                     else:
-                        self.save_checkpoint('{}/e{:02}_v{:.1f}.pickle'.format(folder, self.epoch + 1, codec_f.decode(val_norm, False)))
+                        self.save_checkpoint('{}/e{:02}_v{:.1f}.pickle'.format(folder, self.epoch + 1, codec_f.decode(val_norm, True)))
             else:
                 print('training [loss: {:3.7f}, norm: {:1.5f}]'.format(
-                    loss, codec_f.decode(norm, False)
+                    loss, codec_f.decode(norm, True)
                 ))
                 if save_progress:
                     self.losses.append((loss, norm))
@@ -187,7 +188,7 @@ class OsicModel:
                     if final_model:
                         self.save_checkpoint('{}/e{:02}.pickle'.format(folder, self.epoch + 1), weights_only=True)
                     else:
-                        self.save_checkpoint('{}/e{:02}_t{:.1f}.pickle'.format(folder, self.epoch + 1, codec_f.decode(norm, False)))
+                        self.save_checkpoint('{}/e{:02}_t{:.1f}.pickle'.format(folder, self.epoch + 1, codec_f.decode(norm, True)))
 
 
         validate = True if val_set is not None else False
@@ -220,11 +221,13 @@ def main():
 
     k = 1200
     val_set = ImageDataset(images, images_id[k:], x[k:], y[k:], val_transform)
-    train_set = ImageDataset(images, images_id[:k], x[:k], y[:k], train_transform, add_noise=False)
+    train_set = ImageDataset(images, images_id[:k], x[:k], y[:k], train_transform, add_noise=True)
 
-    model = OsicModel('_', net=NetSimple(), learning_rate=5e-5, gamma=0.1)
+    # model = OsicModel('_', net=NetSimple(), learning_rate=5e-5, gamma=0.1)
+    # model.fit(train_set, val_set, epochs=100, batch_size=8, checkpoint=5)
+
+    model = OsicModel('test_03', net=NetSimple(), learning_rate=5e-5, gamma=0.5)
     model.fit(train_set, val_set, epochs=100, batch_size=8, checkpoint=5)
-
 
 if __name__ == '__main__':
     main()

@@ -3,7 +3,8 @@ import numpy as np
 
 from train_osic import OsicModel, ImageDataset
 from nets import *
-from data_process import codec_fcv
+from utils import *
+# from data_process import codec_fcv
 
 
 def make_dir(file_path):
@@ -39,7 +40,7 @@ def predict(test_pickle, test_csv, model_file, output_file):
     model.load_checkpoint(model_file)
 
     y = model.predict(test_set, batch_size=16)
-    y = codec_fcv(y, decode=True).astype(np.int16)
+    y = codec_f.decode(y).astype(np.int16)
 
     patients_id = [e[0] for e in content]
     c = np.ones((len(content), 146), np.int16) * 70
@@ -48,4 +49,4 @@ def predict(test_pickle, test_csv, model_file, output_file):
 
 
 if __name__ == '__main__':
-    predict('input/test.pickle', 'raw/test.csv', 'model/test_01/e20_v273.8.pickle', 'output/test_01.csv')
+    predict('input/test.pickle', 'raw/test.csv', 'model/test_03/e25_v175.2.pickle', 'output/test_03.csv')
