@@ -1,21 +1,33 @@
-X_LENGTH = 161
-Y_LENGTH = 146
-Y_OFFSET = -12
+import os
 
-FCV_MEAN = 2690.479018721756
-FCV_STD = 832.5021066817238
-PERCENT_MEAN = 77.67265350296326
-PERCENT_STD = 19.81686156299212
+
+WEEK    = (31.861846352485475, 23.240045178171002)
+FVC     = (2690.479018721756, 832.5021066817238)
+PERCENT = (77.67265350296326, 19.81686156299212)
+AGE     = (67.18850871530019, 7.055116199848975)
+IMAGE   = (615.48615, 483.8854)
+
+def make_dir(file_path):
+    dirname = os.path.dirname(file_path)
+    try:
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+    except FileNotFoundError:
+        pass
 
 
 class Codec:
-    def __init__(self, tag='fcv'):
-        if tag == 'fcv':
-            self.mean = FCV_MEAN
-            self.std = FCV_STD
+    def __init__(self, tag='fvc'):
+        if tag == 'week':
+            self.mean, self.std = WEEK
+        elif tag == 'fvc':
+            self.mean, self.std = FVC
         elif tag == 'percent':
-            self.mean = PERCENT_MEAN
-            self.std = PERCENT_STD
+            self.mean, self.std = PERCENT
+        elif tag == 'age':
+            self.mean, self.std = AGE
+        elif tag == 'image':
+            self.mean, self.std = IMAGE
         else:
             raise KeyError
 
@@ -34,5 +46,8 @@ class Codec:
             return value * self.std + self.mean
 
 
-codec_f = Codec(tag='fcv')
+codec_w = Codec(tag='week')
+codec_f = Codec(tag='fvc')
 codec_p = Codec(tag='percent')
+codec_a = Codec(tag='age')
+codec_i = Codec(tag='image')

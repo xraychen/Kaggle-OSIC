@@ -1,30 +1,24 @@
-import os, cv2, pickle
-import pydicom
+import os, cv2, pydicom, math, pickle, random, copy
 import numpy as np
 import matplotlib.pyplot as plt
 
 from utils import *
+from dcm_process import *
 
 
-def make_dir(file_path):
-    dirname = os.path.dirname(file_path)
-    try:
-        if not os.path.exists(dirname):
-            os.mkdir(dirname)
-    except FileNotFoundError:
-        pass
+def fix_random_seed(random_seed):
+    np.random.seed(random_seed)
+    random.seed(random_seed)
 
 
-def plot_images(images, output_file):
-    fig ,axs = plt.subplots(10, 10, subplot_kw={'xticks': [], 'yticks': []}, figsize=(10, 10))
-    for i in range(10):
-        for j in range(10):
-            axs[i][j].imshow(images[10 * i + j], cmap='gray')
+def statistic(csv_file):
+    with open(csv_file) as f:
+        content = f.read().splitlines()[1:]
+        content = [e.split(',') for e in content]
 
-    plt.tight_layout()
-    plt.subplots_adjust(wspace=0, hspace=0)
-    plt.savefig(output_file, dpi=150)
-    plt.close()
+    for tag, idx in [('WEEK', 1), ('FVC', 2), ('PERCENT', 3), ('AGE', 4)]:
+        data = [float(e[idx]) for e in content]
+        print('{} = ({}, {})'.format(tag, np.mean(data), np.std(data)))
 
 
 def onehot(idx, length):
@@ -33,169 +27,160 @@ def onehot(idx, length):
     return temp
 
 
-def to_onehot(value, category):
-    if (category == 'week'):
-        idx = int(value) - Y_OFFSET
-        length = Y_LENGTH
-    elif (category == 'age'):
-        idx = (int(value) - 50) // 5
-        idx = np.clip(idx, 0, 7)
-        length = 8
-    elif (category == 'sex'):
-        idx = ['Male', 'Female'].index(value)
-        length = 2
-    elif (category == 'smoking_status'):
-        idx = ['Never smoked', 'Ex-smoker', 'Currently smokes'].index(value)
-        length = 3
+def interpolate(c0, c1, x):
+    return c0[1] + (c1[1] - c0[1]) * (x - c0[0]) / (c1[0] - c0[0])
+
+
+def plot_images(images, values, output_file):
+    fig ,axs = plt.subplots(10, 10, subplot_kw={'xticks': [], 'yticks': []}, figsize=(10, 10))
+    for i in range(10):
+        for j in range(10):
+            try:
+                axs[i][j].imshow(images[10 * i + j], cmap='gray')
+                axs[i][j].set_title('{:.2f}'.format(values[10 * i + j]))
+            except IndexError:
+                pass
+
+    plt.tight_layout()
+    plt.subplots_adjust(wspace=0.5, hspace=0.5)
+    plt.savefig(output_file, dpi=200)
+    plt.close()
+
+
+def get_info(user_row):
+    line = user_row[0]
+    info = np.concatenate([
+        np.array([codec_a.encode(line[4])], np.float32),
+        onehot(['Male', 'Female'].index(line[5]), 2),
+        onehot(['Never smoked', 'Ex-smoker', 'Currently smokes'].index(line[6]), 3)
+    ], axis=0).astype(np.float32)
+
+    return info
+
+
+def get_data(user_row, interpolation, add_noise, margin_week=12):
+    data = []
+    if interpolation:
+        min_week = int(user_row[0][1])
+        max_week = int(user_row[-1][1])
+
+        k = 0
+        for w in range(min_week, max_week + 1):
+            flag = True
+            line = user_row[k]
+            prev = user_row[k - 1]
+            if (w == int(line[1]) or w > int(line[1])) and k != len(user_row) - 1:
+                week = float(w)
+                fcv = float(line[2])
+                percent = float(line[3])
+                k += 1
+            elif min(abs(w - int(prev[1])), abs(w - int(line[1]))) <= margin_week:
+                week = float(w)
+                fcv = interpolate((float(prev[1]), float(prev[2])), (float(line[1]), float(line[2])), w)
+                percent = interpolate((float(prev[1]), float(prev[3])), (float(line[1]), float(line[3])), w)
+
+                if add_noise:
+                    # week += np.random.normal() * 12
+                    fcv += np.random.normal() * 70
+                    percent += np.random.normal() * 80
+            else:
+                flag = False
+
+            if flag:
+                # data.append([codec_w.encode(w), codec_f.encode(fcv), codec_p.encode(percent)])
+                data.append([codec_w.encode(week), codec_f.encode(fcv), codec_p.encode(percent)])
+
     else:
-        raise KeyError
+        for line in user_row:
+            data.append([codec_w.encode(line[1]), codec_f.encode(line[2]), codec_p.encode(line[3])])
 
-    return onehot(idx, length)
+    data = np.array(data, np.float32)
 
-
-# def codec_fcv(value, decode=False):
-#     MEAN, STD = 2690.479018721756, 832.5021066817238
-
-#     if type(value) == str:
-#         value = float(value)
-
-#     if decode:
-#         return (value * STD) + MEAN
-#         # return value * 4000.
-#     else:
-#         return (value - MEAN) / STD
-#         # return value / 4000.
+    return data
 
 
-# def codec_percent(value, decode=False):
-#     MEAN, STD = 77.67265350296326, 19.81686156299212
+def process_dcm(dcm, image_size, window_width=-1500, window_center=-600):
+    try:
+        image = transform_ctdata(dcm, window_width, window_center)
 
-#     if type(value) == str:
-#         value = float(value)
+        if np.mean(image) < 50 or np.mean(image) > 170:
+            print('skip')
+        else:
+            image = get_lung_img(image)
+            image = get_square_img(image)
 
-#     if decode:
-#         return (value * STD) + MEAN
-#         # return value * 100.
-#     else:
-#         return (value - MEAN) / STD
-#         # return value / 100.
+        image = cv2.resize(image, (image_size, image_size))
 
+    except RuntimeError as e:
+        print(e)
+        image = np.zeros((image_size, image_size), np.uint8)
 
-def normalize(pixel_array, image_size):
-    pixel_array[pixel_array < 0] = 0
-    pixel_array = cv2.resize(pixel_array, (image_size, image_size))
-    if (np.max(pixel_array) > 0):
-        pixel_array = np.clip((pixel_array / np.max(pixel_array)) * 255, 0, 255)
-    pixel_array = pixel_array.astype(np.uint8)
-    return pixel_array
+    return image
 
 
-def process_data(csv_file, image_dir, limit_num=20, image_size=256, return_y=True):
+def get_images(user_id, image_dir, limit_num=20, image_size=256):
+    images = []
+    empty_image = np.zeros((image_size, image_size), np.uint8)
+
+    files = os.listdir(os.path.join(image_dir, user_id))
+    files = sorted([int(f.split('.')[0]) for f in files])
+    files = ['{}.dcm'.format(f) for f in files]
+
+    if limit_num == 1:
+        file = files[math.floor(len(files) / 2)]
+        dcm = pydicom.dcmread(os.path.join(image_dir, user_id, file))
+        dcm = process_dcm(dcm, image_size)
+        images.append(dcm)
+
+    elif len(files) < limit_num:
+        for i in range(limit_num):
+            if i < len(files):
+                file = files[i]
+                dcm = pydicom.dcmread(os.path.join(image_dir, user_id, file))
+                dcm = process_dcm(dcm, image_size)
+                images.append(dcm)
+            else:
+                images.append(empty_image)
+
+    else:
+        k = len(files) / limit_num
+        for i in range(limit_num):
+            file = files[math.floor(i * k)]
+            dcm = pydicom.dcmread(os.path.join(image_dir, user_id, file))
+            dcm = process_dcm(dcm, image_size)
+            images.append(dcm)
+
+    return images
+
+
+def process_data(csv_file, image_dir=None, output_file=None, interpolation=True, add_noise=True, limit_num=20, image_size=256):
     with open(csv_file) as f:
         content = f.read().splitlines()[1:]
         content = [e.split(',') for e in content]
 
-    x = np.zeros((len(content), X_LENGTH), np.float32)
-    y = np.zeros((len(content), Y_LENGTH), np.float32)
+    output = []
+    users_id = sorted(list(set([line[0] for line in content])))
 
-    cache_user_id = None
-    cache_y = np.zeros((Y_LENGTH), np.float32)
-    cache_image = np.zeros((limit_num, image_size, image_size), np.uint8)
+    for i, user_id in enumerate(users_id):
+        # print('{} {}/{}'.format(user_id, i, len(users_id)))
 
-    empty_image = np.zeros((image_size, image_size), np.uint8)
-    images = []
+        user_row = list(filter(lambda x: x[0] == user_id, content))
+        temp = {
+            'id': user_id,
+            'info': get_info(user_row),
+            'data': get_data(user_row, interpolation, add_noise),
+            'images': get_images(user_id, image_dir, limit_num, image_size) if image_dir is not None else None
+        }
+        output.append(temp)
 
-    images_id = np.zeros((len(content)), np.int16)
-
-    for i, line in enumerate(content):
-        # generate x
-        x[i, :] = np.concatenate((
-            np.array([codec_f.encode(line[2]), codec_p.encode(line[3])], np.float32),
-            to_onehot(line[1], 'week'),
-            to_onehot(line[4], 'age'),
-            to_onehot(line[5], 'sex'),
-            to_onehot(line[6], 'smoking_status')
-        ), axis=0)
-
-        user_id = line[0]
-        if cache_user_id != user_id:
-            cache_user_id = user_id
-            # generate y
-            if return_y:
-                user_filter = list(filter(lambda x: x[0] == user_id, content))
-                p = 0
-                for j in range(Y_LENGTH):
-                    if j + Y_OFFSET > int(user_filter[p][1]) and p < len(user_filter) - 1:
-                        p += 1
-                    cache_y[j] = codec_f.encode(user_filter[p][2])
-
-            # generate image
-            image_arr = os.listdir(os.path.join(image_dir, user_id))
-            image_arr = [e.split('.')[0] for e in image_arr]
-            image_arr = sorted([int(e) for e in image_arr])
-
-            for j in range(limit_num):
-                if j < len(image_arr):
-                    try:
-                        if limit_num == 1:
-                            cache_image[j, :, :] = empty_image
-                        else:
-                            image = pydicom.dcmread(os.path.join(image_dir, user_id, '{}.dcm'.format(image_arr[j])))
-                            cache_image[j, :, :] = normalize(image.pixel_array, image_size)
-                    except RuntimeError:
-                        cache_image[j, :, :] = empty_image
-                else:
-                    cache_image[j, :, :] = empty_image
-
-            images.append(cache_image)
-            image_id = len(images) - 1
-
-        y[i, :] = cache_y
-        images_id[i] = image_id
-
-    images = np.array(images, np.uint8)
-
-    if return_y:
-        return images, images_id, x, y
+    if output_file is not None:
+        with open(output_file, 'wb') as f:
+            pickle.dump(output, f)
     else:
-        return images, images_id, x
-
-
-def statistic():
-    with open('raw/train.csv') as f:
-        content = f.read().splitlines()[1:]
-        content = [e.split(',') for e in content]
-
-    row_01 = [float(e[2]) for e in content]
-    row_02 = [float(e[3]) for e in content]
-
-    print('fcv:     {}, {}'.format(np.mean(row_01), np.std(row_01)))
-    print('percent: {}, {}'.format(np.mean(row_02), np.std(row_02)))
-
-
-def process_training_data():
-    images, images_id, x, y = process_data('raw/train.csv', 'raw/train', limit_num=1)
-
-    with open('input/train_new.pickle', 'wb') as f:
-        pickle.dump((images, images_id, x, y), f)
-
-
-def process_testing_data():
-    images, images_id, x = process_data('raw/test.csv', 'raw/test', limit_num=1, return_y=False)
-
-    with open('input/test.pickle', 'wb') as f:
-        pickle.dump((images, images_id, x), f)
-
-
-# X_LENGTH = 161
-# Y_LENGTH = 146
-# Y_OFFSET = -12
-
-# codec_f = Codec(tag='fcv')
-# codec_p = Codec(tag='percent')
+        return output
 
 
 if __name__ == '__main__':
-    process_training_data()
-    process_testing_data()
-    # statistic()
+    fix_random_seed(42)
+    # statistic('raw/train.csv')
+    process_data('raw/train.csv', 'raw/train', limit_num=1)
