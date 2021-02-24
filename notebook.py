@@ -1,3 +1,5 @@
+# This notebook is a copy of all files for submission in kaggle.
+
 import os, cv2, pydicom, math, pickle, random, copy, time, sys
 import numpy as np
 import matplotlib.pyplot as plt
